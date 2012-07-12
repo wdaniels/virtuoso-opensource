@@ -81,6 +81,8 @@
               if (strrchr (self.lhost, ':') is null)
 	        self.lhost := ':' || self.lhost;
 	    }
+	  else if (self.lhost1 = '')
+	    self.lhost1 := '{Any}';
 
 	  pos := strrchr (self.lhost, ':');
 	  if (pos is not null)
@@ -90,9 +92,6 @@
 	    }
 	  else
 	    self.lhost1 := self.lhost;
-
-	  if (length (self.lhost1) = 0)
-	    self.lhost1 := '0.0.0.0';
 
 	  pos := strrchr (self.vhost, ':');
 	  if (pos is not null)
@@ -119,10 +118,13 @@
 		  <![CDATA[
 		  <script type="text/javascript">
 	           function init () {
-		      var sr_cl = new OAT.Combolist([],"<?V self.lhost1 ?>");
+		      var sr_cl = new OAT.Combolist([],"<?V trim(self.lhost1, '[]') ?>");
 		      sr_cl.input.name = "lhost_if";
 		      sr_cl.input.id = "lhost_if";
+		      sr_cl.list.style.width = '200px';
 		      $("if_opt").appendChild(sr_cl.div);
+		      sr_cl.addOption("{Any}");
+		      sr_cl.addOption("::");
 		      sr_cl.addOption("0.0.0.0");
 		      <?vsp
 		        declare arr any;
@@ -247,8 +249,7 @@
 	   y_check_host (self.vhost_nam.ufl_value, lhost_if, self.lhost_port.ufl_value);
 
 	   vhost := self.vhost_nam.ufl_value;
-	   lhost := concat (lhost_if, ':', self.lhost_port.ufl_value);
-	   lhost := replace (lhost, '0.0.0.0', '');
+	   www_build_host (lhost_if, self.lhost_port.ufl_value, lhost);
 
 	   if (self.vhost = vhost and lhost = self.lhost and self.key_list.ufl_value = self.key1 and self.verify1 = self.verify.ufl_value and
 	     self.extra_cert1.ufl_value = self.extra_cert)

@@ -542,12 +542,15 @@
 		httphost := trim(get_keyword ('t_httphost', e.ve_params, ''));
 		host := trim(get_keyword ('t_host', e.ve_params, ''));
 		port := trim(self.t_port.ufl_value);
-		if (length (host) and regexp_match('^[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\$', cast(host as varchar)) is null)
-		  {
+		if (length (host)
+			and regexp_match('^[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\$', cast(host as varchar)) is null
+			and regexp_match('^\\[?(((?=.*(::))(?!.*\\3.+\\3))\\3?|([\\dA-Fa-f]{1,4}(\\3|:\\b|\$)|\\2))(?4){5}((?4){2}|(((2[0-4]|1\\d|[1-9])?\\d|25[0-5])\.?\\b){4})\\]?\\z', cast(host as varchar)) is null
+		)
+		{
 		    self.vc_error_message := concat(self.err_msg, 'You should provide a valid IP address.\n');
 		    self.vc_is_valid := 0;
 		    return;
-		  }
+		}
 		port_no := atoi (cast(port as varchar));
 		if (regexp_match('^[0-9]+\$', cast(port as varchar)) is null or port_no <=0 or port_no > 65535)
 		  {
@@ -566,9 +569,13 @@
 
 		st := '00000';
 		if( self.err_msg = '' ) {
+
+		declare _httphost, _host varchar;
+		www_build_host (httphost, port, _httphost);
+		www_build_host (host, port, _host);
+
 		exec( 'VHOST_DEFINE (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', st, msg,
-		vector( concat(httphost, ':', port), concat(host, ':', port),
-		'/', '/', 0, 0, '', null, null, null, null, null, null, 0, '', '', '', 0));
+		vector(_httphost, _host, '/', '/', 0, 0, '', null, null, null, null, null, null, 0, '', '', '', 0));
 		if (st <> '00000')
 		  {
 		    rollback work;
@@ -592,26 +599,37 @@
 		  <![CDATA[
 		  <script type="text/javascript">
 	           function init () {
-		      var sr_cl = new OAT.Combolist([],"0.0.0.0");
+		      var sr_cl = new OAT.Combolist([],"{Any}");
 		      var sr_cl1 = new OAT.Combolist([], "");
 
 		      sr_cl.input.name = "t_host";
 		      sr_cl.input.id = "t_host";
+		      sr_cl.list.style.width = '200px';
 		      $("if_opt").appendChild(sr_cl.div);
 
 		      sr_cl1.input.name = "t_httphost";
 		      sr_cl1.input.id = "t_httphost";
 		      $("inet_opt").appendChild(sr_cl1.div);
 
+		      sr_cl.addOption("{Any}");
+		      sr_cl.addOption("::");
 		      sr_cl.addOption("0.0.0.0");
 		      <?vsp
-		        declare arr any;
-			arr := tcpip_local_interfaces ();
-			foreach (any elm in arr) do
-			  {
-			    http (sprintf ('sr_cl.addOption("%s");', elm));
-			    http (sprintf ('sr_cl1.addOption("%s");', tcpip_gethostbyaddr (cast(elm as varchar))));
-			  }
+		        declare arr_ifs any;
+		        declare names, revname varchar;
+
+		        names := '';
+		        arr_ifs := tcpip_local_interfaces();
+		        foreach (any ip in arr_ifs) do
+		        {
+		          http (sprintf('sr_cl.addOption("%s");', ip));
+		          revname := tcpip_gethostbyaddr(cast(ip as varchar));
+		          if (strcontains(names, '<' || revname || '>') = 0)
+		          {
+		            http (sprintf('sr_cl1.addOption("%s");', revname));
+		            names := names || '<' || revname || '>';
+		          }
+		        }
 	  	      ?>
 		    }
 		  </script>

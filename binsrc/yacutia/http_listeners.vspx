@@ -48,20 +48,21 @@
               else
                 http ('<tr class="listing_row_even">');
               declare rowset any;
-              declare host, port, httphost, host_toshow, port_toshow, httphost_toshow varchar;
+              declare host, port, httphost, tmp, host_toshow, port_toshow, httphost_toshow varchar;
               rowset := (control as vspx_row_template).te_rowset;
-              port := subseq( rowset[1], strchr(rowset[1],':')+1 );
-              host := subseq( rowset[1], 0, strchr(rowset[1],':') );
-              httphost := subseq( rowset[0], 0, strchr(rowset[0],':') );
+              www_split_host(rowset[1], host, port);
+              www_split_host(rowset[0], httphost, tmp);
               if( rowset[2] = 0 ) {
                 host_toshow := '0.0.0.0';
                 if(subseq( rowset[0], 0, strchr(rowset[0],':') ) = '*ini*') {
                   httphost_toshow := '{Default Web Site}';
                   port_toshow := cfg_item_value (virtuoso_ini_path(), 'HTTPServer', 'ServerPort');
+                  www_split_host(port_toshow, host_toshow, port_toshow);
                 }
                 else {
                   httphost_toshow := '{Default SSL Web Site}';
                   port_toshow := cfg_item_value (virtuoso_ini_path(), 'HTTPServer', 'SSLPort');
+                  www_split_host(port_toshow, host_toshow, port_toshow);
                 }
               }
               else {

@@ -4848,18 +4848,37 @@ err:
 create procedure www_split_host (in fhost any, out host any, out port any)
 {
   declare pos int;
+
   pos := strrchr (fhost, ':');
   if (pos is not null)
-    {
-      host := substring (fhost, 1, pos);
-      port := substring (fhost, pos + 2, length (fhost));
-    }
+  {
+    host := trim(substring (fhost, 1, pos), '[]');
+    port := substring (fhost, pos + 2, length (fhost));
+  }
+  else if (atoi(fhost))
+  {
+    host := '';
+    port := fhost;
+  }
   else
-    {
-      host := fhost;
-      if (host not in ('*ini*', '*sslini*'))
-        port := '80';
-    }
+  {
+    host := fhost;
+    if (host not in ('*ini*', '*sslini*'))
+      port := '80';
+  }
+}
+;
+
+create procedure www_build_host (in host any, in port any, out fhost any)
+{
+  declare _host varchar;
+
+  _host := replace(trim(host, '[]'), '{Any}', '');
+
+  if (strrchr(_host, ':') is not null)
+    fhost := sprintf('[%s]:%s', _host, port);
+  else
+    fhost := sprintf('%s:%s', _host, port);
 }
 ;
 
@@ -4887,7 +4906,7 @@ create procedure www_listeners ()
 
 create procedure www_tree (in path any)
 {
-  declare ss, i any;
+  declare ss, i, endpoint any;
   set isolation='uncommitted';
   if (path is null) 
     path := '*LISTENERS*';
@@ -4895,7 +4914,7 @@ create procedure www_tree (in path any)
   http ('<www>', ss);
   for select distinct HP_HOST as HOST, HP_LISTEN_HOST as LHOST from DB.DBA.HTTP_PATH order by HOST, LHOST do
      {
-       declare vhost, intf, port, tmp any;
+       declare vhost, intf, port, tmp, endpoint any;
        declare HP_NO_EDIT, HP_NO_CTRL any;
 
        HP_NO_EDIT := case HOST when '*ini*' then 0 when '*sslini*' then 0 else 1 end;
@@ -4907,35 +4926,39 @@ create procedure www_tree (in path any)
        intf := LHOST;
        port := '';
 
-
-       if (vhost = '*ini*')
+   if (vhost = '*ini*')
    {
      vhost := '{Default Web Site}';
-     port := cfg_item_value (virtuoso_ini_path (), 'HTTPServer', 'ServerPort');
-     intf := '0.0.0.0';
+     endpoint := cfg_item_value (virtuoso_ini_path (), 'HTTPServer', 'ServerPort');
+     endpoint := COALESCE(endpoint, ':80');
    }
-       else if (vhost = '*sslini*')
+   else if (vhost = '*sslini*')
    {
-           vhost := '{Default SSL Web Site}';
-     port := cfg_item_value (virtuoso_ini_path (), 'HTTPServer', 'SSLPort');
-     if (port is null)
-       port := '';
-     intf := '0.0.0.0';
+     vhost := '{Default SSL Web Site}';
+     endpoint := cfg_item_value (virtuoso_ini_path (), 'HTTPServer', 'SSLPort');
+     endpoint := COALESCE(endpoint, ':443');
    }
-       else
+   else
    {
      www_split_host (HOST, vhost, tmp);
      www_split_host (LHOST, intf, port);
-     if (intf = '' or intf = '*ini*' or intf = '*sslini*')
-       {
-	   if (intf = '*ini*')
-	     port := cfg_item_value (virtuoso_ini_path (), 'HTTPServer', 'ServerPort');
-	   else if (intf = '*sslini*')
-	     port := cfg_item_value (virtuoso_ini_path (), 'HTTPServer', 'SSLPort');
-          intf := '0.0.0.0';
-       }
+
+     if (intf = '*ini*')
+       endpoint := cfg_item_value (virtuoso_ini_path (), 'HTTPServer', 'ServerPort');
+     else if (intf = '*sslini*')
+       endpoint := cfg_item_value (virtuoso_ini_path (), 'HTTPServer', 'SSLPort');
+     else
+       endpoint := null;
    }
 
+   if (endpoint is not null)
+     www_split_host (endpoint, intf, port);
+
+   port := COALESCE(port, '');
+   intf := COALESCE(NULLIF(intf, ''), '{Any}');
+
+   if (intf <> '{Any}')
+     intf := tcpip_gethostbyname(intf);
 
        http (sprintf ('<node host="%s" port="%s" lhost="%s" edit="%d" chost="%s" clhost="%s" control="%d">\n', vhost, port, intf, HP_NO_EDIT, HOST, LHOST, HP_NO_CTRL), ss);
        i := 0;
@@ -5275,7 +5298,7 @@ create procedure y_cli_status_proc ()
       if (st = 0)
         {
 	  ctmp := null;
-	  ctmp := regexp_match ('Client [[:alnum:]:]+', line);
+	  ctmp := regexp_match ('Client [[:alnum:]:\\[\\]]+', line);
 	  tmp1 := regexp_match ('Account: [[:alnum:]_]+', line);
 	  tmp2 := regexp_match ('[0-9]+ bytes in', line);
 	  tmp3 := regexp_match ('[0-9]+ bytes out', line);
@@ -5368,6 +5391,7 @@ create procedure y_check_host (in host varchar, in listen varchar, in port varch
   if (pos is not null)
     {
       ihost := substring (inihost, 1, pos);
+      ihost := rtrim (ltrim (ihost, '['), ']');
       iport := substring (inihost, pos + 2, length (inihost));
     }
   else if (atoi (inihost))
@@ -5380,12 +5404,6 @@ create procedure y_check_host (in host varchar, in listen varchar, in port varch
       ihost := inihost;
       iport := '80';
     }
-
-  if (ihost = '0.0.0.0')
-    ihost := '';
-
-  if (listen = '0.0.0.0')
-    listen := '';
 
   if (not length (port))
     port := '80';

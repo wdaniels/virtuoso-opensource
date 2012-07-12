@@ -134,7 +134,7 @@
             self.edit_host := get_keyword('_host', self.vc_page.vc_event.ve_params, self.edit_host);
             self.edit_port := get_keyword('_port', self.vc_page.vc_event.ve_params, self.edit_port);
             self.edit_httphost := get_keyword('_httphost', self.vc_page.vc_event.ve_params, self.edit_httphost);
-            self._host := concat(self.edit_host, case when length(self.edit_port)>0 then ':' else '' end, self.edit_port);
+            www_build_host(self.edit_host, self.edit_port, self._host);
             self._httphost := self.edit_httphost;
             if (self.mode = 'edit')
             {
