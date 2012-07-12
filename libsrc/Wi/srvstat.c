@@ -1576,6 +1576,7 @@ bif_dbf_set (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 }
 
 
+#ifndef _IPV6
 void
 srv_ip (char *ip_addr, size_t max_ip_addr, char *host)
 {
@@ -1605,6 +1606,63 @@ srv_ip (char *ip_addr, size_t max_ip_addr, char *host)
   else
     strcpy_size_ck (ip_addr, "", max_ip_addr);
 }
+#else
+void
+srv_ip (char *ip_addr, size_t max_ip_addr, char *host)
+{
+	int res = 0;
+	sa_family_t pref = AF_INET; // prefer ipv4 address
+	struct sockaddr_storage *pss = NULL;
+	struct addrinfo hints, *result, *rp;
+
+	*ip_addr = 0;
+	if (!host[0])
+		return;
+
+	// ipv6 extra syntax (to force resolution to INET6 address)
+	if (host[0] == '[' && host[strlen(host) - 1] == ']')
+	{
+		pref = AF_INET6; // prefer ipv6 result
+		host[strlen(host) - 1] = 0;
+		host++;
+	}
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_protocol = IPPROTO_TCP;
+
+	res = getaddrinfo(host, NULL, &hints, &result);
+	if(res != 0)
+	{
+		log_debug("srv_ip: getaddrinfo error (%d) %s", res, gai_strerror(res));
+		*ip_addr = 0;
+	}
+	else
+	{
+		void *addr = NULL;
+		for (rp = result; rp != NULL && pss == NULL; rp = rp->ai_next)
+		{
+			if (rp->ai_family == pref)
+				pss = (struct sockaddr_storage *) rp->ai_addr;
+		}
+		
+		if (!pss) // fall back to first result
+			pss = (struct sockaddr_storage *) result->ai_addr;
+
+		if (pss->ss_family == AF_INET6)
+			addr = &((struct sockaddr_in6 *) pss)->sin6_addr;
+		else if (pss->ss_family == AF_INET)
+			addr = &((struct sockaddr_in *) pss)->sin_addr;
+
+		inet_ntop(pss->ss_family, addr, ip_addr, max_ip_addr);
+
+		// more results via result->ai_next but we only take the first
+		freeaddrinfo(result);
+	}
+}
+#endif
+
 
 caddr_t
 bif_identify_self (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)

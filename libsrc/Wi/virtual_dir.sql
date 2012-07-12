@@ -397,28 +397,35 @@ signal ('22023', 'The physical path must points to the dav domain.', 'HT044');
 if (is_default_host and (lhost = '*ini*' or lhost = '*sslini*'))
 signal ('22023', 'The default directory for default web site can be changed only from the INI file.', 'HT060');
 
-lhost := replace (lhost, '0.0.0.0', '');
-
 ssl_port := coalesce (server_https_port (), '');
 if (isstring (server_http_port ()))
 {
-  varr := split_and_decode (
-     case
-       when vhost = '*ini*' then server_http_port ()
-       when vhost = '*sslini*' then ssl_port
-       else vhost
-     end
-   , 0, ':=:');
-  lport := split_and_decode (
-     case
-       when lhost = '*ini*' then server_http_port ()
-       when lhost = '*sslini*' then ssl_port
-       else lhost
-     end
-   , 0, ':=:');
+  declare endpoint varchar;
+
+  if (vhost = '*ini*')
+    endpoint := server_http_port ();
+  else if (vhost = '*sslini*')
+    endpoint := ssl_port;
+  else
+    endpoint := vhost;
+
+  varr := sprintf_inverse(endpoint, '[%s]:%s', 0);
+  if (varr is null)
+    varr := split_and_decode(endpoint, 0, ':=:');
 
   if (__tag (varr) = 193 and length (varr) > 1)
     vhost := varr[0];
+
+  if (lhost = '*ini*')
+    endpoint := server_http_port ();
+  else if (lhost = '*sslini*')
+    endpoint := ssl_port;
+  else
+    endpoint := lhost;
+
+  lport := sprintf_inverse(endpoint, '[%s]:%s', 0);
+  if (lport is null)
+    lport := split_and_decode(endpoint, 0, ':=:');
 
   if (__tag (lport) = 193 and length (lport) > 1)
     lport := aref (lport, 1);
@@ -569,37 +576,35 @@ return NULL;
 if (length (lpath) > 1 and aref (lpath, length (lpath) - 1) = ascii ('/') )
 lpath := substring (lpath, 1, length (lpath) - 1);
 
-lhost := replace (lhost, '0.0.0.0', '');
-
 ssl_port := coalesce (server_https_port (), '');
 if (isstring (server_http_port ()))
 {
-  varr := split_and_decode (
-     case
-       when vhost = '*ini*' then server_http_port ()
-       when vhost = '*sslini*' then ssl_port
-       else vhost
-     end
-   , 0, ':=:');
-  lport := split_and_decode (
-     case
-       when lhost = '*ini*' then server_http_port ()
-       when lhost = '*sslini*' then ssl_port
-       else lhost
-     end
-   , 0, ':=:');
+  declare endpoint varchar;
+
+  if (vhost = '*ini*')
+    endpoint := server_http_port ();
+  else if (vhost = '*sslini*')
+    endpoint := ssl_port;
+  else
+    endpoint := vhost;
+
+  varr := sprintf_inverse(endpoint, '[%s]:%s', 0);
+  if (varr is null)
+    varr := split_and_decode(endpoint, 0, ':=:');
+
   if (__tag (varr) = 193 and length (varr) > 1)
     vhost := varr[0];
-  if (__tag (lport) = 193 and length (lport) > 1)
-    lport := aref (lport, 1);
-  else if (lhost = '*ini*')
-    lport := server_http_port ();
+
+  if (lhost = '*ini*')
+    endpoint := server_http_port ();
   else if (lhost = '*sslini*')
-    lport := ssl_port;
-  else if (atoi (lhost))
-    lport := lhost;
+    endpoint := ssl_port;
   else
-    lport := '80';
+    endpoint := lhost;
+
+  lport := sprintf_inverse(endpoint, '[%s]:%s', 0);
+  if (lport is null)
+    lport := split_and_decode(endpoint, 0, ':=:');
 }
 else
 lport := null;

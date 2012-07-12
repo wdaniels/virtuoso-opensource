@@ -40,8 +40,35 @@
 #define ioctlsocket	ioctl
 #endif
 
+#ifdef _IPV6
+typedef struct sockaddr_storage saddrin_t;
 
+/* NB: We can no longer use sizeof(saddrin_t) in socket functions on all
+ *     platforms (e.g. Solaris). Some implementations have a ss_len member
+ *     in struct sockaddr_storage for convenience.
+ *
+ *     Linux doesn't currently have ss_len (but is less fussy about addrlen).
+ */
+#ifdef HAVE_SS_LEN
+#define VOS_SALEN(p_addr) (((struct sockaddr_storage *) p_addr)->ss_len)
+#else
+#define VOS_SALEN(p_addr) ( \
+  ((struct sockaddr_storage *) p_addr)->ss_family == AF_INET6 ? \
+    sizeof(struct sockaddr_in6) : \
+    ((struct sockaddr_storage *) p_addr)->ss_family == AF_INET ? \
+      sizeof(struct sockaddr_in) : \
+      sizeof(struct sockaddr_storage))
+#endif
+
+#define VOS_SAFAMILY(p_addr) (((struct sockaddr_storage *) p_addr)->ss_family)
+
+#else
 typedef struct sockaddr_in saddrin_t;
+
+#define VOS_SALEN(p_addr) (sizeof(struct sockaddr_in))
+#define VOS_SAFAMILY(p_addr) (AF_INET)
+#endif
+
 typedef struct sockaddr saddr_t;
 #ifdef COM_UNIXSOCK
 typedef struct sockaddr_un saddrun_t;

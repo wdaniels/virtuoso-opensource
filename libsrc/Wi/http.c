@@ -82,6 +82,26 @@
 #define closesocket close
 #endif
 
+/* NB: http6.c included at end of file. Some ipv6 changes inline also. */
+
+#ifdef _IPV6
+/* sharing some ipv6 functions with Dksestcp6.c */
+extern int       ip6_socket_name (struct sockaddr_storage *pss, char* buf, size_t max_buf);
+extern void      ip6_address_name (const char *ip, char *out_name, size_t max_name);
+extern void      ip6_split_hostname (char *p_fhost, char *buf_name, size_t max_name, char *buf_port, size_t max_port, int def_port);
+extern void      ip6_build_hostname (char *p_host, char *p_port, char *buf, size_t max_buf);
+
+/* alternative/patched ipv6 functions located in http6.c */
+caddr_t *        box_tpcip_get_interfaces ();
+caddr_t          http_host_normalize_1 (caddr_t host, int to_ip, int def_port, int physical_port);
+caddr_t          http_virtual_host_normalize (caddr_t _host, caddr_t lhost);
+caddr_t          get_http_map (ws_http_map_t ** ws_map, char * lpath, int dir, char * host, char * lhost);
+
+//void             ws_set_phy_path (ws_connection_t * ws, int dir, char * vsp_path);
+caddr_t          ws_gethostbyaddr (const char * ip);
+static caddr_t   ws_get_http_map (ws_connection_t * ws, int dir, caddr_t lpath, int set_map);
+#endif
+
 char *http_methods[] = { "NONE", "GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS", /* HTTP/1.1 */
   			 "PROPFIND", "PROPPATCH", "COPY", "MOVE", "LOCK", "UNLOCK", "MKCOL",  /* WebDAV */
 			 "MGET", "MPUT", "MDELETE", 	/* URIQA */
@@ -237,6 +257,7 @@ caddr_t ws_get_packed_hf (ws_connection_t * ws, const char * fld, char * deflt);
 #define ws_get_packed_hf(ws,path1,deflt) NULL
 #endif
 
+#ifndef _IPV6
 caddr_t
 ws_gethostbyaddr (const char * ip)
 {
@@ -282,6 +303,7 @@ ws_gethostbyaddr (const char * ip)
     }
   return box_dv_short_string (host->h_name);
 }
+#endif
 
 #define ACL_HIT_RESTORE(hit) \
       if (hit) \
@@ -7861,6 +7883,14 @@ box_tcpip_localhost_names (void)
 	}
     }
 
+#ifdef _IPV6
+	char *local6 = unbox_string(ws_gethostbyaddr("::1"));
+	if (!strcmp(local6, "::1") || !strcmp(local6, "localhost"))
+		local6 = NULL;
+	else
+		nEntries++;
+#endif
+
   _localhost_names = (caddr_t *) dk_alloc_box (nEntries * sizeof (caddr_t), DV_ARRAY_OF_POINTER);
 
   _localhost_names[0] = box_string (local ? local->h_name : szTemp);
@@ -7868,6 +7898,11 @@ box_tcpip_localhost_names (void)
   if (local && local->h_aliases)
     for (inx = 0; local->h_aliases[inx]; inx++)
       _localhost_names[inx + 1] = box_string (local->h_aliases[inx]);
+
+#ifdef _IPV6
+	if (local6)
+		_localhost_names[inx + 1] = box_string(local6);
+#endif
   return _localhost_names;
 }
 
@@ -7886,6 +7921,7 @@ caddr_t * all_host_names = NULL;
 * if input is *ini* copy http_port and return it
 * if input is *sslini* copy https_port and return it
 ***********************************************************/
+#ifndef _IPV6
 caddr_t
 http_host_normalize_1 (caddr_t host, int to_ip, int def_port, int physical_port)
 {
@@ -7934,6 +7970,7 @@ http_host_normalize_1 (caddr_t host, int to_ip, int def_port, int physical_port)
   dk_free_box (host2);
   return host1;
 }
+#endif // !_IPV6
 
 caddr_t
 http_host_normalize (caddr_t host, int to_ip)
@@ -7945,6 +7982,7 @@ http_host_normalize (caddr_t host, int to_ip)
    Internally all hosts should be represented as cname:nnn where nnn is port number.
    This function must be called with cname and listen interface e.g. 'localhost' and '0.0.0.0:8890'
 */
+#ifndef _IPV6
 caddr_t
 http_virtual_host_normalize (caddr_t _host, caddr_t lhost)
 {
@@ -7993,6 +8031,7 @@ http_virtual_host_normalize (caddr_t _host, caddr_t lhost)
   dk_free_box (host);
   return host1;
 }
+#endif // !_IPV6
 
 
 /*##********************************************************
@@ -8039,7 +8078,14 @@ bif_http_map_table (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 
       lhost = http_host_normalize (listen_host, 1);
       vh = http_virtual_host_normalize (virtual_host, listen_host);
+#ifdef _IPV6
+		// "any" interface strings are stripped out in the http_map
+		if (vh && !strncmp(vh, "[::]", 4))
+			memmove(vh, vh + 4, strlen(vh) + 1);
+      if (lhost && (lhost[0] == ':' || !strncmp(lhost, "[::]", 4)) && vh && vh[0] == ':')
+#else
       if (lhost && lhost[0] == ':' && vh && vh[0] == ':')
+#endif
 	{
 	  host = box_dv_short_string ("*all*"); /*TODO: add all names for the host */
 	  dk_free_box (vh); vh = NULL;
@@ -8066,7 +8112,11 @@ bif_http_map_table (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 	  if (is_default_host)
 	    {
 	      l_host_default = dk_alloc_box (box_length (lpath) + (2 * box_length (lhost)) + 1, DV_SHORT_STRING);
+#ifdef _IPV6
+	      snprintf (l_host_default, box_length (l_host_default), "//%s|%s%s", ((lhost[0] == ':' || !strncmp(lhost, "[::]", 4)) ? "*all*" : lhost), lhost, lpath);
+#else
 	      snprintf (l_host_default, box_length (l_host_default), "//%s|%s%s", (lhost[0] == ':' ? "*all*" : lhost), lhost, lpath);
+#endif
 	    }
 	}
       dk_free_box (host); dk_free_box (lhost);
@@ -8192,7 +8242,11 @@ bif_http_map_del (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
       caddr_t listen_host = bif_string_or_null_arg (qst, args, 2, "http_map_del");
       lhost = http_host_normalize (listen_host, 1);
       vh = http_virtual_host_normalize (virtual_host, listen_host);
+#ifdef _IPV6
+      if (lhost && (lhost[0] == ':' || !strncmp(lhost, "[::]", 4)) && vh && vh[0] == ':')
+#else
       if (lhost && lhost[0] == ':' && vh && vh[0] == ':')
+#endif
 	{
 	  host = box_dv_short_string ("*all*"); /*TODO: add all names for the host */
 	  dk_free_box (vh); vh = NULL;
@@ -8690,6 +8744,7 @@ get_path_elms (caddr_t * paths, int nth, char * host, char * lhost)
 * to appropriate ws_http_map entry
 * TODO: optimize if hash not available
 *************************************************************/
+#ifndef _IPV6
 caddr_t
 get_http_map (ws_http_map_t ** ws_map, char * lpath, int dir, char * host, char * lhost)
 {
@@ -8770,6 +8825,7 @@ get_http_map (ws_http_map_t ** ws_map, char * lpath, int dir, char * host, char 
   dk_free_tree ((box_t) paths);
   return res;
 }
+#endif // !_IPV6
 
 /*##***********************************************************
 * Return HTTP header field value w/o leading space and
@@ -8801,6 +8857,7 @@ ws_get_packed_hf (ws_connection_t * ws, const char * fld, char * deflt)
 /*##****************************************************
 * Set physical path string and http virtual map struct
 *******************************************************/
+#ifndef _IPV6
 void
 ws_set_phy_path (ws_connection_t * ws, int dir, char * vsp_path)
 {
@@ -8935,6 +8992,7 @@ ws_get_http_map (ws_connection_t * ws, int dir, caddr_t lpath, int set_map)
   dk_free_box (host_hf);
   return ppath;
 }
+#endif // !_IPV6
 
 static caddr_t
 bif_http_physical_path_resolve (caddr_t *qst, caddr_t * err_ret, state_slot_t **args)
@@ -9148,7 +9206,7 @@ http_vhosts_init (void)
 #endif
 }
 
-#endif
+#endif // VIRTUAL_DIR
 
 
 caddr_t
@@ -10259,6 +10317,7 @@ bif_http_methods_set (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
   return NULL;
 }
 
+#ifndef _IPV6
 caddr_t *
 box_tpcip_get_interfaces ()
 {
@@ -10336,6 +10395,7 @@ box_tpcip_get_interfaces ()
   closesocket(sockfd);
   return (caddr_t *) list_to_array (dk_set_nreverse (set));
 }
+#endif
 
 int
 http_init_part_one ()
@@ -11155,3 +11215,8 @@ soap_mime_tree (ws_connection_t * ws, dk_set_t * set, caddr_t * err, int soap_ve
 	}
     }
 }
+
+// include additional/alternative/patched functions for ipv6 support
+#ifdef _IPV6
+#include "http.ipv6.c"
+#endif

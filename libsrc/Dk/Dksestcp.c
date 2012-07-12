@@ -31,6 +31,23 @@
 #include "Dksestcp.h"
 #include "Dksestcpint.h"
 
+/* NB: Dksestcp6.c included at end of file. Some ipv6 changes inline also. */
+
+#ifdef _IPV6
+/* additional ipv6 functions located in Dksestcp.ipv6.c */
+int    ip6_socket_name (struct sockaddr_storage *pss, char* buf, size_t max_buf);
+void   ip6_address_name (const char *ip, char *out_name, size_t max_name);
+void   ip6_split_hostname(char *p_fhost, char *buf_name, size_t max_name, char *buf_port, size_t max_port, int def_port);
+void   ip6_build_hostname (char *p_host, char *p_port, char *buf, size_t max_buf);
+
+/* alternative/patched ipv6 implementations located in Dksestcp.ipv6.c */
+int    tcpses_getsockname (session_t * ses, char *buf_out, int buf_out_len);
+int    tcpses_client_port (session_t * ses);
+void   tcpses_print_client_ip (session_t * ses, char *buf, int buf_len);
+int    tcpses_addr_info (session_t * ses, char *buf, size_t max_buf, int deflt, int from);
+//static int   tcpses_set_address (session_t * ses, char *addrinfo);
+#endif
+
 int last_errno;
 static int tcpdev_free (device_t * dev);
 static int ses_control_all (session_t * ses);
@@ -256,6 +273,7 @@ extern int h_errno;
 #define INADDR_NONE ((in_addr_t)(-1))
 #endif
 
+#ifndef _IPV6
 static int
 tcpses_set_address (session_t * ses, char *addrinfo1)
 {
@@ -366,6 +384,7 @@ tcpses_set_address (session_t * ses, char *addrinfo1)
 
   return (SER_SUCC);
 }
+#endif
 
 
 void
@@ -385,6 +404,7 @@ tcpses_get_fd (session_t * ses)
 }
 
 
+#ifndef _IPV6
 int
 tcpses_getsockname (session_t * ses, char *buf_out, int buf_out_len)
 {
@@ -432,6 +452,7 @@ tcpses_getsockname (session_t * ses, char *buf_out, int buf_out_len)
     }
   return 0;
 }
+#endif
 
 
 /*##**********************************************************************
@@ -491,13 +512,23 @@ tcpses_listen (session_t * ses)
 
   p_addr = &(ses->ses_device->dev_address->a_serveraddr.t);
   /* XXX TEMPORARY XXX */
-  if ((s = (int) socket (AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
+  if ((s = (int) socket (VOS_SAFAMILY(p_addr), SOCK_STREAM, IPPROTO_TCP)) < 0)
     {
       test_eintr (ses, s, errno);
       dbg_perror ("socket()");
       return (SER_NOREC);
     }
 
+#ifdef _IPV6
+	/* NB: Dual-mode v4-mapped sockets are not implemented on all platforms
+	 *     (e.g. Windows XP, 2003) see note in tcpses_set_address for ipv6 */
+	if (p_addr->ss_family == AF_INET6)
+	{
+		// a_hostname should be explicitly :: (not null) for single-stack
+		int val = ses->ses_device->dev_address->a_hostname[0] ? 1 : 0;
+		setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (void *) &val, sizeof(val));
+	}
+#endif
   if (reuse_address)
     {
       int f = 1;
@@ -509,7 +540,8 @@ tcpses_listen (session_t * ses)
   ses->ses_device->dev_connection->con_s = s;
 
   dbg_printf_2 (("Calling bind: s=%d, addr=%p, len=%d",
-	s, &(ses->ses_device->dev_address->a_serveraddr.t), sizeof (saddrin_t)));
+	s, &(ses->ses_device->dev_address->a_serveraddr.t),
+	VOS_SALEN(&(ses->ses_device->dev_address->a_serveraddr.t))));
 
   rc = ses_control_all (ses);
   if (rc != SER_SUCC)
@@ -519,8 +551,9 @@ tcpses_listen (session_t * ses)
     }
 
   if ((rc = bind (s,
-	(struct sockaddr *) &(ses->ses_device->dev_address->a_serveraddr.t),
-	sizeof (saddrin_t))) < 0)
+		(struct sockaddr *) &(ses->ses_device->dev_address->a_serveraddr.t),
+		VOS_SALEN(&(ses->ses_device->dev_address->a_serveraddr.t))
+	)) < 0)
     {
       test_eintr (ses, rc, errno);
       dbg_perror ("bind()");
@@ -643,6 +676,7 @@ tcpses_accept (session_t * ses, session_t * new_ses)
 }
 
 
+#ifndef _IPV6
 int
 tcpses_client_port (session_t * ses)
 {
@@ -668,6 +702,7 @@ tcpses_print_client_ip (session_t * ses, char *buf, int buf_len)
       snprintf (buf, buf_len, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
     }
 }
+#endif
 
 
 /*
@@ -726,7 +761,7 @@ tcpses_connect (session_t * ses)
   ses->ses_device->dev_connection->con_s = -1;
 
   /* Create a socket */
-  if ((s = (int) socket (AF_INET, SOCK_STREAM, 0)) < 0)
+  if ((s = (int) socket (VOS_SAFAMILY(p_addr), SOCK_STREAM, 0)) < 0)
     {
       test_eintr (ses, s, errno);
       dbg_perror ("socket()");
@@ -735,7 +770,7 @@ tcpses_connect (session_t * ses)
 
   /* Connect to the server */
 #ifdef ERESTARTSYS
-  while ((rc = connect (s, (struct sockaddr *) p_addr, sizeof (saddrin_t))) < 0)
+  while ((rc = connect (s, (struct sockaddr *) p_addr, VOS_SALEN(p_addr))) < 0)
     {
       if (errno != SYS_EWBLK && errno != ERESTARTSYS)
 	break;
@@ -743,7 +778,7 @@ tcpses_connect (session_t * ses)
   if (rc < 0)
     {
 #else
-  if ((rc = connect (s, (struct sockaddr *) p_addr, sizeof (saddrin_t))) < 0)
+  if ((rc = connect (s, (struct sockaddr *) p_addr, VOS_SALEN(p_addr))) < 0)
     {
 #endif
       test_eintr (ses, rc, errno);
@@ -1967,6 +2002,7 @@ ses_control_all (session_t * ses)
 }
 
 
+#ifndef _IPV6
 #ifdef PCTCP
 int
 init_pctcp ()
@@ -2005,6 +2041,7 @@ init_pctcp ()
   /*WSASetBlockingHook ((FARPROC) Yield); */
   return 0;
 }
+#endif
 #endif
 
 unsigned int
@@ -2045,6 +2082,7 @@ tcpses_get_accepted_port (session_t * ses)
  * return port number
  * from - 1 from listening session / 0 - from accepted session
  */
+#ifndef _IPV6
 int
 tcpses_addr_info (session_t * ses, char *buf, size_t max_buf, int deflt, int from)
 {
@@ -2085,6 +2123,7 @@ tcpses_addr_info (session_t * ses, char *buf, size_t max_buf, int deflt, int fro
     snprintf (buf, max_buf, ":%d", p);
   return (int) (p);
 }
+#endif
 
 
 void
@@ -2928,4 +2967,9 @@ tcpses_make_unix_session (char *address)
 {
   return NULL;
 }
+#endif
+
+// include additional/alternative/patched functions for ipv6 support
+#ifdef _IPV6
+#include "Dksestcp.ipv6.c"
 #endif
