@@ -1055,7 +1055,8 @@ create function DB.DBA.RDF_SPONGE_GUESS_CONTENT_TYPE (in origin_uri varchar, in 
         return 'text/html'; -- GRDDL inline profile is authoritative, too
       if (xpath_eval ('//*[exists(@itemscope) or exists(@itemprop) or exists(@itemid) or exists(@itemtype)]', ret_html) is not null)
         return 'text/microdata+html'; -- Microdata are tested before RDFa because metadata with @rel may be wrongly recognised as RDFa
-      if (xpath_eval ('//*[exists(@rel) or exists(@rev) or exists(@typeof) or exists(@property) or exists(@about)]', ret_html) is not null)
+      -- if (xpath_eval ('//*[exists(@rel) or exists(@rev) or exists(@typeof) or exists(@property) or exists(@about)]', ret_html) is not null)
+      if (xpath_eval ('//*[exists(@typeof) or exists(@about)]', ret_html) is not null)
         return 'application/xhtml+xml';
     return 'text/html';
     }
@@ -1263,6 +1264,10 @@ create procedure DB.DBA.RDF_LOAD_HTTP_RESPONSE (in graph_iri varchar, in new_ori
     }
   -- dbg_obj_princ ('DB.DBA.RDF_LOAD_HTTP_RESPONSE (', graph_iri, new_origin_uri, ret_content_type, ret_hdr, ret_body, options, req_hdr_arr, ')');
   --!!!TBD: proper calculation of new_expiration, using data from HTTP header of the response
+  declare l any;
+  l := ret_body;
+  if (length (l) > 3 and l[0] = 0hexEF and l[1] = 0hexBB and l[2] = 0hexBF) -- remove BOM
+    ret_body := subseq (ret_body, 3);
   ret_content_type := DB.DBA.RDF_SPONGE_GUESS_CONTENT_TYPE (new_origin_uri, ret_content_type, ret_body);
   -- dbg_obj_princ ('ret_content_type is ', ret_content_type);
   dest := get_keyword_ucase ('get:destination', options);
