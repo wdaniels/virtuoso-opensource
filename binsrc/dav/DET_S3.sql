@@ -77,7 +77,13 @@ create function "S3_DAV_GET_PARENT" (
   in path varchar) returns any
 {
   -- dbg_obj_princ ('S3_DAV_GET_PARENT (', id, what, path, ')');
-  return -20;
+  declare retValue any;
+
+  retValue := DAV_GET_PARENT (id[2], what, path);
+  if (DAV_HIDE_ERROR (retValue) is not null)
+    retValue := vector (DB.DBA.S3__detName (), id[1], retValue, 'C');
+
+  return retValue;
 }
 ;
 
@@ -93,6 +99,7 @@ create function "S3_DAV_COL_CREATE" (
   in extern integer := 0) returns any
 {
   -- dbg_obj_princ ('S3_DAV_COL_CREATE (', detcol_id, path_parts, permissions, uid, gid, auth_uid, extern, ')');
+  declare ouid, ogid integer;
   declare title, parentListID, listID, listItem varchar;
   declare url, body, header any;
   declare retValue, retHeader, result, save, parentID any;
@@ -115,7 +122,8 @@ create function "S3_DAV_COL_CREATE" (
     listID := get_keyword ('path', listItem);
   }
   connection_set ('dav_store', 1);
-  retValue := DAV_COL_CREATE_INT (DB.DBA.S3__path (detcol_id, path_parts), permissions, DB.DBA.S3__user (uid, auth_uid), DB.DBA.S3__user (gid, auth_uid), DB.DBA.S3__user (http_dav_uid ()), DB.DBA.S3__password (http_dav_uid ()), 1, 0, 1);
+  DB.DBA.S3__owner (detcol_id, path_parts, DB.DBA.S3__user (uid, auth_uid), DB.DBA.S3__user (gid, auth_uid), ouid, ogid);
+  retValue := DAV_COL_CREATE_INT (DB.DBA.S3__path (detcol_id, path_parts), permissions, DB.DBA.S3__user (uid, auth_uid), DB.DBA.S3__user (gid, auth_uid), DB.DBA.S3__user (http_dav_uid ()), DB.DBA.S3__password (http_dav_uid ()), 1, 0, 1, ouid, ogid);
 
 _exit:;
   connection_set ('dav_store', save);
@@ -217,6 +225,7 @@ create function "S3_DAV_RES_UPLOAD" (
   in auth_uid integer) returns any
 {
   -- dbg_obj_princ ('S3_DAV_RES_UPLOAD (', detcol_id, path_parts, ', [content], ', type, permissions, uid, gid, auth_uid, ')');
+  declare ouid, ogid integer;
   declare name, path, parentListID, listID, listItem, rdf_graph varchar;
   declare url, header, body, params any;
   declare retValue, retHeader, result, save, parentID any;
@@ -248,7 +257,8 @@ create function "S3_DAV_RES_UPLOAD" (
   }
 _skip_create:;
   connection_set ('dav_store', 1);
-  retValue := DAV_RES_UPLOAD_STRSES_INT (path, content, type, permissions, DB.DBA.S3__user (uid, auth_uid), DB.DBA.S3__user (gid, auth_uid), DB.DBA.S3__user (http_dav_uid ()), DB.DBA.S3__password (http_dav_uid ()), 0, null, null, null, null, null, 0);
+  DB.DBA.S3__owner (detcol_id, path_parts, DB.DBA.S3__user (uid, auth_uid), DB.DBA.S3__user (gid, auth_uid), ouid, ogid);
+  retValue := DAV_RES_UPLOAD_STRSES_INT (path, content, type, permissions, DB.DBA.S3__user (uid, auth_uid), DB.DBA.S3__user (gid, auth_uid), DB.DBA.S3__user (http_dav_uid ()), DB.DBA.S3__password (http_dav_uid ()), 0, ouid=>ouid, ogid=>ogid, check_locks=>0);
 
 _exit:;
   connection_set ('dav_store', save);
@@ -264,7 +274,7 @@ _exit:;
       DB.DBA.S3__paramSet (retValue, 'R', 'path', listID, 0);
     }
     DB.DBA.S3__paramSet (retValue, 'R', 'virt:DETCOL_ID', cast (detcol_id as varchar), 0, 0);
-    retValue := vector (DB.DBA.S3__detName (), detcol_id, retValue, 'C');
+    retValue := vector (DB.DBA.S3__detName (), detcol_id, retValue, 'R');
   }
   return retValue;
 }
@@ -336,7 +346,7 @@ create function "S3_DAV_PROP_LIST" (
   -- dbg_obj_princ ('S3_DAV_PROP_LIST (', id, what, propmask, auth_uid, ')');
   declare retValue any;
 
-  retValue := DAV_PROP_LIST_INT (id[2], what, propmask, 1);
+  retValue := DAV_PROP_LIST_INT (id[2], what, propmask, 0);
 
   return retValue;
 }
@@ -870,6 +880,35 @@ create function DB.DBA.S3__password (
   in user_id integer)
 {
   return coalesce ((select pwd_magic_calc(U_NAME, U_PWD, 1) from WS.WS.SYS_DAV_USER where U_ID = user_id), '');
+}
+;
+
+-------------------------------------------------------------------------------
+--
+create function DB.DBA.S3__owner (
+  in detcol_id any,
+  in subPath_parts any,
+  in uid any,
+  in gid any,
+  inout ouid integer,
+  inout ogid integer)
+{
+  declare id any;
+  declare path varchar;
+
+  DB.DBA.DAV_OWNER_ID (uid, gid, ouid, ogid);
+  if ((ouid = -12) or (ouid = 5))
+  {
+    path := DB.DBA.S3__path (detcol_id, subPath_parts);
+    id := DB.DBA.DAV_SEARCH_ID (path, 'P');
+    if (DAV_HIDE_ERROR (id))
+    {
+      select COL_OWNER, COL_GROUP
+        into ouid, ogid
+        from WS.WS.SYS_DAV_COL
+       where COL_ID = id;
+    }
+  }
 }
 ;
 
@@ -1670,6 +1709,7 @@ create function DB.DBA.S3__downloads (
   if (length (downloads) = 0)
     return;
 
+  set_user_id ('dba');
   aq := async_queue (1);
   aq_request (aq, 'DB.DBA.S3__downloads_aq', vector (detcol_id, downloads));
 }
@@ -1745,6 +1785,7 @@ create function DB.DBA.S3__rdf (
 {
   declare aq any;
 
+  set_user_id ('dba');
   aq := async_queue (1);
   aq_request (aq, 'DB.DBA.S3__rdf_aq', vector (detcol_id, id, what));
 }
@@ -1757,6 +1798,7 @@ create function DB.DBA.S3__rdf_aq (
   in id any,
   in what varchar)
   {
+  set_user_id ('dba');
   DB.DBA.S3__rdf_delete (detcol_id, id, what);
   DB.DBA.S3__rdf_insert (detcol_id, id, what);
 }

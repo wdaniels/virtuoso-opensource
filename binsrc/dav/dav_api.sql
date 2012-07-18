@@ -1710,7 +1710,10 @@ DAV_AUTHENTICATE_HTTP (in id any, in what char(1), in req varchar, in can_write_
       if (rc < 0)
       {
         if (DAV_AUTHENTICATE_SSL (id, what, null, req, a_uid, a_gid, _perms))
+        {
+	  http_rewrite ();
           return a_uid;
+        }
 
           return rc;	
       }
@@ -2882,7 +2885,7 @@ DAV_DELETE_INT (
       declare det varchar;
 
       det := cast ((select COL_DET from WS.WS.SYS_DAV_COL where COL_ID=id) as varchar);
-      if (det in ('S3', 'GDrive', 'Dropbox', 'SkyDrive', 'Box'))
+      if (det in ('S3', 'GDrive', 'Dropbox', 'SkyDrive', 'Box', 'WebDAV'))
         connection_set ('dav_store', 1);
 
       for select RES_FULL_PATH from WS.WS.SYS_DAV_RES where RES_COL = id do
@@ -4721,14 +4724,14 @@ create procedure WS.WS.WAC_INSERT (
   declare graph varchar;
 
   graph := WS.WS.WAC_GRAPH (path);
-    aciContent := cast (blob_to_string (aciContent) as varchar);
-    if (update_acl)
-    {
-      connection_set ('dav_acl_sync', 1);
+  aciContent := cast (blob_to_string (aciContent) as varchar);
+  if (update_acl)
+  {
+    connection_set ('dav_acl_sync', 1);
     DAV_RES_UPLOAD_STRSES_INT (rtrim (path, '/') || ',acl', aciContent, 'text/n3', '110100000RR', uid, gid, null, null, 0);
-      connection_set ('dav_acl_sync', null);
-    }
-    DB.DBA.TTLP (aciContent, graph, graph);
+    connection_set ('dav_acl_sync', null);
+  }
+  DB.DBA.TTLP (aciContent, graph, graph);
 }
 ;
 
@@ -4740,12 +4743,12 @@ create procedure WS.WS.WAC_DELETE (
   declare graph, st, msg varchar;
 
   graph := WS.WS.WAC_GRAPH (path);
-    if (update_acl)
-    {
-      connection_set ('dav_acl_sync', 1);
+  if (update_acl)
+  {
+    connection_set ('dav_acl_sync', 1);
     DAV_DELETE_INT (rtrim (path, '/') || ',acl', 1, null, null, 0, 0);
-      connection_set ('dav_acl_sync', null);
-    }
+    connection_set ('dav_acl_sync', null);
+  }
   set_user_id ('dba');
   delete from DB.DBA.RDF_QUAD where G = iri_to_id (graph);
 }
@@ -4755,7 +4758,7 @@ create procedure WS.WS.WAC_GRAPH (
   in path varchar)
 {
   return rtrim (WS.WS.DAV_IRI (path), '/') || '/';
-  }
+}
 ;
 
 create procedure WS.WS.DAV_IRI (
