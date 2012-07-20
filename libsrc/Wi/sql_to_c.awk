@@ -42,46 +42,25 @@ function strip_comments(text, pl_stats, arr)
      #print "***COM_START=" comm_start "***"
      special_comment = index (curline, "--!AWK")
      special_comment2 = index (curline, "--!AFTER")
-     ifver_comment = index (curline, "--#IF VER=")
-     ifopt_comment = index (curline, "--#IF OPT=")
-     else_comment = index (curline, "--#ELSE")
+     if_comment = index (curline, "--#IF VER=")
      endif_comment = index (curline, "--#ENDIF")
+     if (in_if && endif_comment > 0)
+       {
+	 in_if = 0
+       }	
 
-	if (else_comment > 0)
-	{
-		in_if = ((in_if > 0) ? 0 : 1)
-	}
-
-	if (endif_comment > 0)
-	{
-		in_if = 0
-	}
-
-	if (ifver_comment > 0)
-	{
-		match (curline, /[0-9]+/, arr)
-		ver = arr[0] + 0
-		if (ver == srv_ver)
-		{
-			inx = inx + 1
-			continue
-		}
-		else
-			in_if = 1
-	}
-
-	if (ifopt_comment > 0)
-	{
-		match (curline, /=[a-z0-9]+/, arr)
-		opt = substr(arr[0], 2)
-		if (index(ENVIRON["BUILD_OPTS"], opt))
-		{
-			inx = inx + 1
-			continue
-		}
-		else
-			in_if = 1
-	}
+     if (if_comment > 0)
+       {
+	 match (curline, /[0-9]+/, arr)
+	 ver = arr[0] + 0
+	 if (ver == srv_ver)
+	   {
+	      inx = inx + 1
+	      continue
+	   }
+	 else
+	   in_if = 1
+       }	
 
      if (in_if)
        {
