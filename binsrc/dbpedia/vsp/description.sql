@@ -547,7 +547,9 @@ again:
    else if (__tag (_object) = 182)
      {
        string_type:
-       http (sprintf ('<span %s>%V</span>', rdfa, charset_recode (_object, 'UTF-8', '_WIDE_')));
+       http (sprintf ('<span %s>', rdfa));
+       http_value (charset_recode (_object, 'UTF-8', '_WIDE_'));
+       http ('</span>');
        lang := '';
      }
    else if (__tag (_object) = 211)
@@ -648,10 +650,10 @@ create procedure dbp_wikipedia_cc_by_sa (in _S any, in _G any)
     _G := id_to_iri (_G);
 
   exec (sprintf ('sparql  '||
-  'select ?o where { graph <%S> { <%S> foaf:page ?o } } LIMIT 1', _G, _S), null, null, vector (), 0, meta, data);
+  'select ?o where { graph <%S> { <%S> foaf:isPrimaryTopicOf ?o } } LIMIT 1', _G, _S), null, null, vector (), 0, meta, data);
 
   if (length (data))
-    wiki_link := data[0][0];
+    wiki_link := charset_recode (data[0][0], 'UTF-8', '_WIDE_');
   else
     wiki_link := 'http://www.wikipedia.org/';
     
