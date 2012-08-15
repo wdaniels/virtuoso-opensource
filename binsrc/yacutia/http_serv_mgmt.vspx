@@ -541,7 +541,10 @@
 		--httphost := trim(self.t_httphost.ufl_value);
 		httphost := trim(get_keyword ('t_httphost', e.ve_params, ''));
 		host := trim(get_keyword ('t_host', e.ve_params, ''));
+		if (host = '{Any}')
+			host := '';
 		port := trim(self.t_port.ufl_value);
+
 		if (length (host)
 			and regexp_match('^[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\$', cast(host as varchar)) is null
 			and regexp_match('^\\[?(((?=.*(::))(?!.*\\3.+\\3))\\3?|([\\dA-Fa-f]{1,4}(\\3|:\\b|\$)|\\2))(?4){5}((?4){2}|(((2[0-4]|1\\d|[1-9])?\\d|25[0-5])\.?\\b){4})\\]?\\z', cast(host as varchar)) is null
