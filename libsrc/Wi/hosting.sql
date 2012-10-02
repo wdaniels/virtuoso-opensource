@@ -24,7 +24,6 @@ create procedure WS.WS.GET_CGI_VARS_VECTOR (inout lines any) returns ANY
 {
   declare options any;
   declare sys_addr varchar;
-  declare server_addr varchar;
   declare host varchar;
   declare line varchar;
   declare fld varchar;
@@ -32,7 +31,18 @@ create procedure WS.WS.GET_CGI_VARS_VECTOR (inout lines any) returns ANY
   declare first_colon integer;
 
   sys_addr := sys_connected_server_address ();
-  server_addr := split_and_decode (sys_addr, 0, '\0\0:');
+
+  declare pos int;
+  declare server_addr varchar;
+  declare server_port varchar;
+
+  pos := strrchr (sys_addr, ':');
+  if (pos is not null)
+  {
+    server_addr := trim (substring (sys_addr, 1, pos), '[]');
+    server_port := substring (sys_addr, pos + 2, length (sys_addr));
+  }
+
   server_name := server_addr[0];
   host := http_request_header (lines, 'HOST', null, null);
   if (host is not null)
@@ -51,11 +61,11 @@ create procedure WS.WS.GET_CGI_VARS_VECTOR (inout lines any) returns ANY
    ,'SERVER_SOFTWARE', 		'Virtuoso Universal Server/6.0'
    ,'SERVER_SIGNATURE',		'Virtuoso Universal Server/6.0 on ' || sys_addr
    ,'SERVER_NAME', 		server_name
-   ,'SERVER_ADDR', 		server_addr[0]
+   ,'SERVER_ADDR', 		server_addr
    ,'DOCUMENT_ROOT', 		http_root()
    ,'GATEWAY_INTERFACE',	'CGI/1.1'
    ,'SERVER_PROTOCOL',		http_request_get ('SERVER_PROTOCOL')
-   ,'SERVER_PORT',		server_addr[1]
+   ,'SERVER_PORT',		server_port
    ,'REQUEST_METHOD',		http_request_get ('REQUEST_METHOD')
    ,'REQUEST_URI',		http_request_get ('REQUEST_URI')
  --,'PATH_INFO',		''
