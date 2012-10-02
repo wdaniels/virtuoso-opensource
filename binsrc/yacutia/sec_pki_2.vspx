@@ -85,14 +85,14 @@
 	  pos := strrchr (self.lhost, ':');
 	  if (pos is not null)
 	    {
-	      self.lhost1 := substring (self.lhost, 1, pos);
+	      self.lhost1 := trim (substring (self.lhost, 1, pos), '[]');
 	      self.port1 := substring (self.lhost, pos + 2, length (self.lhost));
 	    }
 	  else
 	    self.lhost1 := self.lhost;
 
 	  if (length (self.lhost1) = 0)
-	    self.lhost1 := '0.0.0.0';
+	    self.lhost1 := '{Any}';
 
 	  pos := strrchr (self.vhost, ':');
 	  if (pos is not null)
@@ -189,14 +189,16 @@
 		      var sr_cl = new OAT.Combolist([],"<?V self.lhost1 ?>");
 		      sr_cl.input.name = "lhost_if";
 		      sr_cl.input.id = "lhost_if";
+		      sr_cl.list.style.width = '250px';
 		      $("if_opt").appendChild(sr_cl.div);
+		      sr_cl.addOption("{Any}");
+		      sr_cl.addOption("::");
 		      sr_cl.addOption("0.0.0.0");
 		      <?vsp
 		        declare arr any;
 			arr := tcpip_local_interfaces ();
 			foreach (any elm in arr) do
 			  http (sprintf ('sr_cl.addOption("%s");', elm));
-                        http (sprintf ('sr_cl.input.value = "%s";', get_keyword ('lhost_if', self.vc_event.ve_params, ''))); 
 		      ?>
 		     }
 		  </script>
@@ -368,7 +370,7 @@
 
 	   vhost := self.vhost_nam.ufl_value;
 	   lhost := concat (lhost_if, ':', self.lhost_port.ufl_value);
-	   lhost := replace (lhost, '0.0.0.0', '');
+	   lhost := replace (lhost, '{Any}', '');
 
 	   if (self.vhost is null) -- new listener
 	     {
